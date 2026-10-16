@@ -134,10 +134,47 @@ jobs:
         Get-ChildItem "$kitsBase`Lib\wdf\kmdf\x64" -ErrorAction SilentlyContinue |
           ForEach-Object { Write-Host "  $($_.Name)" }
 
+    - name: Diagnose WDK Layout
+      shell: pwsh
+      run: |
+        $kitsRoot = $env:KitsRoot10
+        Write-Host "KitsRoot10 = $kitsRoot"
+        Write-Host "KmdfVersion = $env:KmdfVersion"
+        Write-Host ""
+
+        Write-Host "=== Include\wdf\kmdf\ ==="
+        Get-ChildItem "$kitsRoot`Include\wdf\kmdf" -ErrorAction SilentlyContinue |
+          ForEach-Object { Write-Host "  $($_.Name)" }
+
+        Write-Host "=== Include\$(Split-Path $env:WDKContentRoot -Leaf)\km\ (first 30 files) ==="
+        $ver = Split-Path $env:WDKContentRoot -Leaf
+        Get-ChildItem "$kitsRoot`Include\$ver\km" -ErrorAction SilentlyContinue |
+          Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.Name)" }
+
+        Write-Host "=== Lib\$ver\km\x64\ (*.lib) ==="
+        Get-ChildItem "$kitsRoot`Lib\$ver\km\x64" -Filter "*.lib" -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -match "vhf|wdf|nt|hal" } |
+          ForEach-Object { Write-Host "  $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
+
+        Write-Host "=== Lib\wdf\kmdf\x64\ ==="
+        Get-ChildItem "$kitsRoot`Lib\wdf\kmdf\x64" -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            Write-Host "  [$($_.Name)]"
+            Get-ChildItem $_.FullName -Filter "*.lib" -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "    $($_.Name)" }
+          }
+
+        Write-Host ""
+        Write-Host "vhfkm.lib exists: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\vhfkm.lib")"
+        Write-Host "ntoskrnl.lib exists: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\ntoskrnl.lib")"
+        Write-Host "vhf.h exists: $(Test-Path "$kitsRoot`Include\$ver\km\vhf.h")"
+
     - name: Build vmouse.sys
       shell: pwsh
       run: |
         Write-Host "WDKContentRoot = $env:WDKContentRoot"
+        Write-Host "KitsRoot10     = $env:KitsRoot10"
+        Write-Host "KmdfVersion    = $env:KmdfVersion"
 
         # props 파일 존재 확인 (신버전/구버전 모두)
         $propsNew = "$env:WDKContentRoot`WindowsDriver.Default.props"
@@ -148,10 +185,18 @@ jobs:
           throw "props 파일 없음: $propsNew / $propsOld"
         }
 
+        # vhfkm.lib 없으면 경고 (나중에 확인용)
+        $kitsRoot = $env:KitsRoot10
+        $ver = Split-Path $env:WDKContentRoot -Leaf
+        if (-not (Test-Path "$kitsRoot`Lib\$ver\km\x64\vhfkm.lib")) {
+          Write-Host "[경고] vhfkm.lib 없음 - VHF 미설치 or 경로 다름"
+          Write-Host "  대안: $(Get-ChildItem "$kitsRoot`Lib\$ver\km\x64" -Filter "*vhf*" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)"
+        }
+
         $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
         & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
-          /p:Configuration=Release /p:Platform=x64 /v:normal
-        if ($LASTEXITCODE -ne 0) { throw "빌드 실패" }
+          /p:Configuration=Release /p:Platform=x64 /v:detailed 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "빌드 실패 (exit $LASTEXITCODE)" }
         Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" |
           Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
 

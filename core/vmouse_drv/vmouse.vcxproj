@@ -87,18 +87,15 @@
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
     <Link>
-      <!-- 커널 드라이버 링커 설정 -->
-      <SubSystem>Native</SubSystem>
-      <Driver>Driver</Driver>
-      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+      <!-- v143 toolset: /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry 명시적 지정 -->
+      <AdditionalOptions>/DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry /NODEFAULTLIB %(AdditionalOptions)</AdditionalOptions>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <!-- 커널 모드 라이브러리 -->
+      <!-- 커널 모드 라이브러리 (vhfkm.lib: WDK km\x64 에 위치) -->
       <AdditionalDependencies>
-        ntoskrnl.lib;hal.lib;wdfldr.lib;vhfkm.lib;%(AdditionalDependencies)
+        ntoskrnl.lib;hal.lib;vhfkm.lib;%(AdditionalDependencies)
       </AdditionalDependencies>
       <AdditionalLibraryDirectories>
         $(KitsRoot10)Lib\$(WdkVersion)\km\x64;
-        $(KitsRoot10)Lib\wdf\kmdf\x64\$(KmdfVersion);
         %(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
     </Link>
