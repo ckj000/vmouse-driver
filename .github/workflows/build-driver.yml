@@ -17,51 +17,87 @@ jobs:
 
     - name: Install WDK
       shell: pwsh
-      timeout-minutes: 25
+      timeout-minutes: 35
       run: |
         $installer = "$env:TEMP\wdksetup.exe"
 
         Write-Host "WDK 다운로드 중..."
         curl.exe -L -f -o $installer `
           "https://download.microsoft.com/download/eb29e759-d7ad-4541-b60c-e9774ad8c593/KIT_BUNDLE_WDK_MEDIACREATION/wdksetup.exe"
-        if ($LASTEXITCODE -ne 0) { throw "다운로드 실패 (curl exit $LASTEXITCODE)" }
+        if ($LASTEXITCODE -ne 0) { throw "다운로드 실패" }
 
-        # PE 헤더(MZ) 확인
         $bytes = [System.IO.File]::ReadAllBytes($installer)
-        if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
-          $preview = [System.Text.Encoding]::UTF8.GetString($bytes, 0, [Math]::Min(300, $bytes.Length))
-          Write-Host "파일 미리보기:`n$preview"
-          throw "다운로드 파일이 PE 실행파일이 아님 (HTML 반환 의심)"
-        }
+        if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "PE 헤더 없음 (HTML 반환)" }
         Write-Host "EXE 확인: $([math]::Round((Get-Item $installer).Length/1MB,1)) MB"
 
-        Write-Host "WDK 설치 중 (몇 분 소요)..."
+        Write-Host "WDK 설치 중..."
         $proc = Start-Process -FilePath $installer `
           -ArgumentList "/features + /quiet /norestart" `
           -Wait -PassThru
         Write-Host "설치 종료 코드: $($proc.ExitCode)"
-        # 3010 = 재부팅 필요(정상), 0 = 성공
         if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
           throw "WDK 설치 실패 (exit $($proc.ExitCode))"
         }
 
-        # WDKContentRoot 탐색
-        $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
-                   -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $props) {
-          $reg = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" `
-                   -ErrorAction SilentlyContinue).KitsRoot10
-          if ($reg) {
-            $props = Get-Item "$reg\build\WindowsDriver.Default.props" -ErrorAction SilentlyContinue
+        # 부트스트래퍼가 백그라운드 설치를 시작했을 수 있으므로 대기
+        Write-Host "설치 완료 대기 중 (최대 15분)..."
+        $deadline = [DateTime]::Now.AddMinutes(15)
+        $props = $null
+        while ([DateTime]::Now -lt $deadline) {
+          # 모든 가능한 경로 탐색
+          $props = Get-ChildItem -Path "C:\", "D:\" `
+                     -Filter "WindowsDriver.Default.props" `
+                     -Recurse -ErrorAction SilentlyContinue |
+                     Select-Object -First 1
+          if ($props) {
+            Write-Host "발견: $($props.FullName)"
+            break
           }
-        }
-        if (-not $props) { throw "설치 완료 후에도 WindowsDriver.Default.props 없음" }
 
+          # 현재 상태 출력
+          $wkDirs = @(
+            "C:\Program Files (x86)\Windows Kits",
+            "C:\Program Files\Windows Kits",
+            "D:\Program Files (x86)\Windows Kits"
+          ) | Where-Object { Test-Path $_ }
+          Write-Host "$(Get-Date -Format 'HH:mm:ss') 대기 중... Windows Kits 경로: $($wkDirs -join '; ')"
+          Start-Sleep -Seconds 20
+        }
+
+        if (-not $props) {
+          # 진단 정보 출력
+          Write-Host "=== 진단: 드라이브 목록 ==="
+          Get-PSDrive -PSProvider FileSystem | Select-Object Root, Used, Free | Format-Table
+
+          Write-Host "=== 진단: Windows Kits 폴더 ==="
+          foreach ($base in @("C:\Program Files (x86)", "C:\Program Files", "D:\Program Files (x86)", "D:\Program Files")) {
+            $kits = "$base\Windows Kits"
+            if (Test-Path $kits) {
+              Write-Host "[$kits]"
+              Get-ChildItem $kits -Depth 3 -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host "  $($_.FullName)" }
+            } else {
+              Write-Host "없음: $kits"
+            }
+          }
+
+          Write-Host "=== 진단: 레지스트리 ==="
+          Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" `
+            -ErrorAction SilentlyContinue | Format-List
+
+          Write-Host "=== 진단: VS Extensions 내 WDK ==="
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" `
+            -Filter "*WindowsDriver*" -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 10 | ForEach-Object { Write-Host "  $($_.FullName)" }
+
+          throw "WDK 설치 타임아웃: WindowsDriver.Default.props 없음"
+        }
+
+        # WDKContentRoot = props 파일의 상위 2단계 (build 폴더의 부모)
         $wdkRoot = $props.Directory.Parent.FullName.TrimEnd('\') + '\'
         Write-Host "WDKContentRoot = $wdkRoot"
         Add-Content -Path $env:GITHUB_ENV -Value "WDKContentRoot=$wdkRoot"
 
-        # 설치된 WDK 버전 출력
         Get-ChildItem "$wdkRoot\Include" -ErrorAction SilentlyContinue |
           ForEach-Object { Write-Host "  Include: $($_.Name)" }
 
