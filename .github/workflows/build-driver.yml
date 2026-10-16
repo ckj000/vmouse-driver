@@ -307,9 +307,23 @@ jobs:
         # 7. 인증서 공개키 내보내기 (사용자가 PC에 설치할 .cer)
         Export-Certificate -Cert $cert -FilePath "$infDir\VMouseTestCert.cer" | Out-Null
         Write-Host "VMouseTestCert.cer 내보내기 완료"
+
+        # 8. devcon.exe 복사 (Root\VMouse 장치 노드 생성용)
+        $devcon = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Tools" -Recurse `
+            -Filter "devcon.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "x64" } | Select-Object -First 1 -ExpandProperty FullName
+        if ($devcon) {
+            Copy-Item $devcon "$infDir\devcon.exe" -Force
+            Write-Host "devcon.exe 복사: $devcon"
+        } else {
+            Write-Host "::warning::devcon.exe 없음 - WDK Tools 경로 확인 필요"
+            Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Tools" -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host "  $($_.Name)" }
+        }
+
         Write-Host ""
         Write-Host "=== 서명된 파일 목록 ==="
-        Get-ChildItem $infDir -File | Where-Object { $_.Extension -in ".sys",".cat",".cer",".inf" } |
+        Get-ChildItem $infDir -File | Where-Object { $_.Extension -in ".sys",".cat",".cer",".inf",".exe" } |
             ForEach-Object { Write-Host "  $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
 
     - name: Upload build log (always)
@@ -331,4 +345,5 @@ jobs:
           core/vmouse_drv/vmouse.inf
           core/vmouse_drv/vmouse.cat
           core/vmouse_drv/VMouseTestCert.cer
+          core/vmouse_drv/devcon.exe
         retention-days: 90
