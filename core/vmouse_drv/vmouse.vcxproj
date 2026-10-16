@@ -50,8 +50,8 @@
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <!-- v143 = VS2022 MSVC. WindowsKernelModeDriver 툴셋 불필요 -->
     <PlatformToolset>v143</PlatformToolset>
-    <!-- DynamicLibrary로 빌드하되 확장자를 .sys로 지정 -->
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <!-- Application: /DLL 없이 빌드, TargetExt=.sys 로 커널 드라이버 생성 -->
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <CharacterSet>NotSet</CharacterSet>
     <TargetExt>.sys</TargetExt>
@@ -90,12 +90,15 @@
       <!-- v143 toolset: /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry 명시적 지정 -->
       <AdditionalOptions>/DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry /NODEFAULTLIB %(AdditionalOptions)</AdditionalOptions>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <!-- 커널 모드 라이브러리 (vhfkm.lib: WDK km\x64 에 위치) -->
+      <!-- 커널 모드 라이브러리
+           WdfLdr.lib: KMDF 함수 테이블 스텁 (wdf\kmdf\x64\KmdfVersion\)
+           vhfkm.lib : VHF 가상 HID 프레임워크 (km\x64\) -->
       <AdditionalDependencies>
-        ntoskrnl.lib;hal.lib;vhfkm.lib;%(AdditionalDependencies)
+        ntoskrnl.lib;hal.lib;vhfkm.lib;WdfLdr.lib;%(AdditionalDependencies)
       </AdditionalDependencies>
       <AdditionalLibraryDirectories>
         $(KitsRoot10)Lib\$(WdkVersion)\km\x64;
+        $(KitsRoot10)Lib\wdf\kmdf\x64\$(KmdfVersion);
         %(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
     </Link>

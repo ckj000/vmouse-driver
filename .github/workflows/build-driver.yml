@@ -194,11 +194,31 @@ jobs:
         }
 
         $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+        # 빌드 출력 파일에 저장 (항상 아티팩트로 업로드됨)
         & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
-          /p:Configuration=Release /p:Platform=x64 /v:detailed 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "빌드 실패 (exit $LASTEXITCODE)" }
+          /p:Configuration=Release /p:Platform=x64 /v:detailed `
+          2>&1 | Tee-Object -FilePath "build_output.txt"
+        $exitCode = $LASTEXITCODE
+
+        # 오류/경고 라인만 스텝 요약에 추가 (GitHub Actions 요약 페이지에서 확인 가능)
+        $errors = Get-Content "build_output.txt" | Where-Object { $_ -match " error " }
+        if ($errors) {
+          Add-Content $env:GITHUB_STEP_SUMMARY "## 빌드 오류`n``````"
+          $errors | Add-Content $env:GITHUB_STEP_SUMMARY
+          Add-Content $env:GITHUB_STEP_SUMMARY "``````"
+        }
+
+        if ($exitCode -ne 0) { throw "빌드 실패 (exit $exitCode)" }
         Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" |
           Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
+
+    - name: Upload build log (always)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: build_output.txt
+        retention-days: 7
 
     - name: Upload vmouse.sys
       uses: actions/upload-artifact@v4
