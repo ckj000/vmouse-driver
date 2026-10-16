@@ -213,21 +213,29 @@ jobs:
           2>&1 | Tee-Object -FilePath "build_output.txt"
         $exitCode = $LASTEXITCODE
 
-        # MSBuild 에러 라인 (::error:: 어노테이션 → GitHub API 에서 인증 없이 확인)
-        $errors = Get-Content "build_output.txt" |
-          Where-Object { $_ -match "error (C|LNK|MSB)\d|cannot open|unresolved" } |
-          Select-Object -First 20
-        if ($errors) {
-          $errors | ForEach-Object { Write-Host "::error::$_" }
-        } else {
-          Write-Host "::error::--- 에러 패턴 미매칭, 마지막 20줄 ---"
-          Get-Content "build_output.txt" -Tail 20 |
-            ForEach-Object { Write-Host "::warning::$_" }
+        # 빌드 실패 시에만 에러 분석
+        if ($exitCode -ne 0) {
+          $errors = Get-Content "build_output.txt" |
+            Where-Object { $_ -match "error (C|LNK|MSB)\d|cannot open|unresolved" } |
+            Select-Object -First 20
+          if ($errors) {
+            $errors | ForEach-Object { Write-Host "::error::$_" }
+          } else {
+            Write-Host "::error::--- 에러 패턴 미매칭, 마지막 20줄 ---"
+            Get-Content "build_output.txt" -Tail 20 |
+              ForEach-Object { Write-Host "::warning::$_" }
+          }
+          throw "빌드 실패 (exit $exitCode)"
         }
 
-        if ($exitCode -ne 0) { throw "빌드 실패 (exit $exitCode)" }
-        Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" |
-          Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
+        # ConfigurationType=Application 이면 .exe로 출력될 수 있음 → .sys로 이름 변경
+        $sysPath = "core\vmouse_drv\x64\Release\vmouse.sys"
+        $exePath = "core\vmouse_drv\x64\Release\vmouse.exe"
+        if (-not (Test-Path $sysPath) -and (Test-Path $exePath)) {
+          Write-Host "vmouse.exe -> vmouse.sys 이름 변경"
+          Rename-Item $exePath $sysPath -Force
+        }
+        Get-Item $sysPath | Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
 
     - name: Upload build log (always)
       if: always()
