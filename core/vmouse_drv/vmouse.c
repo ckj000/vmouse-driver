@@ -75,7 +75,7 @@ typedef struct {
     SHORT  x;         /* 상대 X (픽셀, -32768~32767)          */
     SHORT  y;         /* 상대 Y (픽셀, -32768~32767)          */
     CHAR   wheel;     /* 휠 (-127~127, 양수=위)               */
-} VMOUSE_REPORT;
+} VMOUSE_REPORT, *PVMOUSE_REPORT;
 #pragma pack(pop)
 
 /*
@@ -160,6 +160,7 @@ EvtIoControl(
     NTSTATUS       status = STATUS_INVALID_DEVICE_REQUEST;
     PVMOUSE_REPORT report;
     size_t         size;
+    HID_XFER_PACKET pkt;  /* WDK 28000: VhfReadReportSubmit 2-param 버전 */
 
     UNREFERENCED_PARAMETER(Queue);
     UNREFERENCED_PARAMETER(OutputLen);
@@ -170,9 +171,11 @@ EvtIoControl(
             Request, sizeof(VMOUSE_REPORT), (PVOID*)&report, &size);
 
         if (NT_SUCCESS(status)) {
-            /* VHF에 HID 리포트 제출 → 게임이 WM_INPUT으로 수신 */
-            status = VhfReadReportSubmit(g_VhfHandle, NULL,
-                         (PUCHAR)report, sizeof(VMOUSE_REPORT), NULL);
+            /* WDK 28000: VhfReadReportSubmit(VhfHandle, PHID_XFER_PACKET) */
+            pkt.reportBuffer    = (PUCHAR)report;
+            pkt.reportBufferLen = sizeof(VMOUSE_REPORT);
+            pkt.reportId        = 0;
+            status = VhfReadReportSubmit(g_VhfHandle, &pkt);
         }
     }
 
