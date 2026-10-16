@@ -172,6 +172,16 @@ jobs:
         $out | ForEach-Object { Write-Host $_ }
         $out | Set-Content -Path "diagnose_output.txt" -Encoding UTF8
 
+        # KMDF lib 목록을 annotation으로 출력 (GitHub API에서 인증 없이 확인)
+        Write-Host "::warning::=== KMDF LIB FILES ==="
+        Get-ChildItem "$kitsRoot`Lib\wdf\kmdf\x64" -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+          ForEach-Object { Write-Host "::warning::KMDF_LIB: $($_.FullName)" }
+        # WDF build 폴더의 *.lib도 확인
+        Write-Host "::warning::=== WDK BUILD LIB FILES ==="
+        Get-ChildItem "$kitsRoot`build" -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
+          Select-Object -First 30 |
+          ForEach-Object { Write-Host "::warning::BUILD_LIB: $($_.FullName)" }
+
     - name: Build vmouse.sys
       shell: pwsh
       run: |
