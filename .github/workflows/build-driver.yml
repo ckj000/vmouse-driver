@@ -18,60 +18,60 @@ jobs:
     - name: Install WDK for Windows 11
       shell: pwsh
       run: |
-        $wdkExe = "$env:TEMP\wdksetup.exe"
-        $logFile = "$env:TEMP\wdk_install.log"
+        # 이미 설치됐는지 확인
+        $ntddk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" `
+                   -Filter "ntddk.h" -Recurse -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match "\\km\\" } |
+                   Select-Object -First 1
+        if ($ntddk) {
+          Write-Host "WDK 이미 설치됨: $($ntddk.FullName)"
+        } else {
+          Write-Host "=== Chocolatey로 WDK 설치 시도 ==="
+          choco install windows-driver-kit -y --timeout 3600 2>&1
+          $wdkOk = $?
 
-        # curl.exe 로 다운로드 (리다이렉트 처리 더 안정적)
-        Write-Host "WDK 다운로드 중..."
-        curl.exe -L --retry 3 --max-time 600 `
-          -o $wdkExe `
-          "https://go.microsoft.com/fwlink/?linkid=2249371"
+          if (-not $wdkOk) {
+            Write-Host "=== Chocolatey 실패, 직접 다운로드 시도 ==="
+            $wdkExe = "$env:TEMP\wdksetup.exe"
+            curl.exe -L --retry 3 --max-time 600 -o $wdkExe `
+              "https://go.microsoft.com/fwlink/?linkid=2249371"
 
-        $size = (Get-Item $wdkExe -ErrorAction SilentlyContinue).Length
-        Write-Host "다운로드 크기: $([math]::Round($size/1MB,1)) MB"
+            # MZ 헤더 (PE 파일 여부) 확인
+            $bytes = [IO.File]::ReadAllBytes($wdkExe)[0..3]
+            $isMZ  = ($bytes[0] -eq 0x4D) -and ($bytes[1] -eq 0x5A)
+            Write-Host "파일 크기: $((Get-Item $wdkExe).Length) bytes, MZ 헤더: $isMZ"
+            if (-not $isMZ) {
+              # HTML 반환된 경우 내용 출력
+              Get-Content $wdkExe -Encoding UTF8 -TotalCount 10
+              throw "다운로드된 파일이 EXE가 아님 (HTML 리다이렉트?)"
+            }
 
-        # HTML 페이지가 반환된 경우 확인
-        if ($size -lt 500KB) {
-          Write-Host "=== 다운로드된 내용 (처음 500자) ==="
-          Get-Content $wdkExe -Encoding UTF8 -Raw -ErrorAction SilentlyContinue |
-            ForEach-Object { $_.Substring(0, [Math]::Min(500, $_.Length)) }
-          throw "WDK 다운로드 실패: 파일이 너무 작음 ($size bytes)"
+            $p = Start-Process -FilePath $wdkExe `
+                 -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart" `
+                 -Wait -PassThru
+            Write-Host "설치 코드: $($p.ExitCode)"
+            if ($p.ExitCode -notin @(0, 3010)) {
+              throw "WDK 설치 실패: $($p.ExitCode)"
+            }
+          }
+          Write-Host "WDK 설치 완료"
         }
 
-        Write-Host "WDK 설치 중 (수 분 소요)..."
-        $p = Start-Process -FilePath $wdkExe `
-             -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart /log $logFile" `
-             -Wait -PassThru
-        Write-Host "설치 종료 코드: $($p.ExitCode)"
-
-        if (Test-Path $logFile) {
-          Write-Host "=== 설치 로그 (마지막 30줄) ==="
-          Get-Content $logFile -Tail 30
-        }
-
-        if ($p.ExitCode -notin @(0, 3010)) {
-          throw "WDK 설치 실패: exit=$($p.ExitCode)"
-        }
-        Write-Host "WDK 설치 완료"
+        # 설치 결과 확인
+        $kits = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" `
+                  -ErrorAction SilentlyContinue | Select-Object Name
+        Write-Host "설치된 WDK 버전:"
+        $kits | ForEach-Object { Write-Host "  $($_.Name)" }
 
     - name: Build vmouse.sys
       shell: pwsh
       run: |
-        # WDK 설치 경로 확인
-        $wdkRoot = "C:\Program Files (x86)\Windows Kits\10"
-        Write-Host "WDK 루트: $(Test-Path $wdkRoot)"
-        Get-ChildItem "$wdkRoot\Include" -ErrorAction SilentlyContinue |
-          Select-Object -First 5 | ForEach-Object { Write-Host "  $_" }
-
         $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
-        Write-Host "MSBuild: $msbuild"
-
         & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
           /p:Configuration=Release /p:Platform=x64 /v:normal
         if ($LASTEXITCODE -ne 0) { throw "빌드 실패" }
-
         Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" |
-          Select-Object Name, @{N='Size(KB)';E={[math]::Round($_.Length/1KB,1)}}
+          Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
 
     - name: Upload vmouse.sys
       uses: actions/upload-artifact@v4
