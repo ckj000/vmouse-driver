@@ -138,36 +138,39 @@ jobs:
       shell: pwsh
       run: |
         $kitsRoot = $env:KitsRoot10
-        Write-Host "KitsRoot10 = $kitsRoot"
-        Write-Host "KmdfVersion = $env:KmdfVersion"
-        Write-Host ""
-
-        Write-Host "=== Include\wdf\kmdf\ ==="
-        Get-ChildItem "$kitsRoot`Include\wdf\kmdf" -ErrorAction SilentlyContinue |
-          ForEach-Object { Write-Host "  $($_.Name)" }
-
-        Write-Host "=== Include\$(Split-Path $env:WDKContentRoot -Leaf)\km\ (first 30 files) ==="
         $ver = Split-Path $env:WDKContentRoot -Leaf
-        Get-ChildItem "$kitsRoot`Include\$ver\km" -ErrorAction SilentlyContinue |
-          Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.Name)" }
 
-        Write-Host "=== Lib\$ver\km\x64\ (*.lib) ==="
+        $out = @()
+        $out += "KitsRoot10 = $kitsRoot"
+        $out += "KmdfVersion = $env:KmdfVersion"
+        $out += "WdkVersion = $ver"
+        $out += ""
+
+        $out += "=== Include\wdf\kmdf\ ==="
+        Get-ChildItem "$kitsRoot`Include\wdf\kmdf" -ErrorAction SilentlyContinue |
+          ForEach-Object { $out += "  $($_.Name)" }
+
+        $out += "=== Lib\$ver\km\x64\ (관련 *.lib) ==="
         Get-ChildItem "$kitsRoot`Lib\$ver\km\x64" -Filter "*.lib" -ErrorAction SilentlyContinue |
-          Where-Object { $_.Name -match "vhf|wdf|nt|hal" } |
-          ForEach-Object { Write-Host "  $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
+          Where-Object { $_.Name -match "vhf|wdf|nt|hal|buffer|overflow|gs" } |
+          ForEach-Object { $out += "  $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
 
-        Write-Host "=== Lib\wdf\kmdf\x64\ ==="
+        $out += "=== Lib\wdf\kmdf\x64\ (전체 *.lib) ==="
         Get-ChildItem "$kitsRoot`Lib\wdf\kmdf\x64" -ErrorAction SilentlyContinue |
           ForEach-Object {
-            Write-Host "  [$($_.Name)]"
+            $out += "  [$($_.Name)]"
             Get-ChildItem $_.FullName -Filter "*.lib" -ErrorAction SilentlyContinue |
-              ForEach-Object { Write-Host "    $($_.Name)" }
+              ForEach-Object { $out += "    $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
           }
 
-        Write-Host ""
-        Write-Host "vhfkm.lib exists: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\vhfkm.lib")"
-        Write-Host "ntoskrnl.lib exists: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\ntoskrnl.lib")"
-        Write-Host "vhf.h exists: $(Test-Path "$kitsRoot`Include\$ver\km\vhf.h")"
+        $out += ""
+        $out += "vhfkm.lib: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\vhfkm.lib")"
+        $out += "ntoskrnl.lib: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\ntoskrnl.lib")"
+        $out += "bufferoverflowk.lib: $(Test-Path "$kitsRoot`Lib\$ver\km\x64\bufferoverflowk.lib")"
+        $out += "vhf.h: $(Test-Path "$kitsRoot`Include\$ver\km\vhf.h")"
+
+        $out | ForEach-Object { Write-Host $_ }
+        $out | Set-Content -Path "diagnose_output.txt" -Encoding UTF8
 
     - name: Build vmouse.sys
       shell: pwsh
@@ -221,7 +224,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: build-log
-        path: build_output.txt
+        path: |
+          build_output.txt
+          diagnose_output.txt
         retention-days: 7
 
     - name: Upload vmouse.sys
