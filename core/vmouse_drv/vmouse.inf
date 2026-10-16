@@ -1,0 +1,55 @@
+;
+; vmouse.inf  -  가상 마우스 HID 드라이버 설치 파일
+;
+; 테스트 서명 모드에서 사용:
+;   bcdedit /set testsigning on  (관리자 CMD, 재부팅 필요)
+;
+; 설치:
+;   devcon install vmouse.inf Root\VMouse  (관리자 CMD)
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %ManufacturerName%
+DriverVer   = 10/16/2026,1.0.0.0
+CatalogFile = vmouse.cat
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+vmouse.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceName% = VMouse_Install, Root\VMouse
+
+[VMouse_Install.NT]
+CopyFiles = Drivers_Dir
+
+[Drivers_Dir]
+vmouse.sys
+
+[VMouse_Install.NT.Services]
+AddService = VMouse, %SPSVCINST_ASSOCSERVICE%, VMouse_Service_Inst
+
+[VMouse_Service_Inst]
+DisplayName    = %ServiceName%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %12%\vmouse.sys
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ManufacturerName       = "VMouse"
+DiskName               = "VMouse Driver Disk"
+DeviceName             = "Virtual Mouse Driver"
+ServiceName            = "VMouse"

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  vmouse.vcxproj  -  Visual Studio + WDK KMDF 드라이버 프로젝트
+
+  준비:
+    1) Visual Studio 2019 또는 2022 (C++ 데스크톱 개발 포함)
+    2) WDK 10  (https://learn.microsoft.com/ko-kr/windows-hardware/drivers/download-the-wdk)
+       VS 버전에 맞는 WDK 버전 필수
+
+  빌드:
+    Visual Studio에서 이 .vcxproj 파일 열기 → Release / x64 → 빌드
+    결과물: x64\Release\vmouse.sys, vmouse.inf
+
+  또는 개발자 명령 프롬프트:
+    msbuild vmouse.vcxproj /p:Configuration=Release /p:Platform=x64
+-->
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <TemplateGuid>{B12F7EF9-1B14-4EC1-8993-15DE4A30D89A}</TemplateGuid>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
+    <Configuration Condition="'$(Configuration)'==''">Release</Configuration>
+    <Platform Condition="'$(Platform)'==''">x64</Platform>
+    <ProjectName>vmouse</ProjectName>
+    <TargetOsVersion>10.0</TargetOsVersion>
+    <TargetPlatformVersion>10.0</TargetPlatformVersion>
+  </PropertyGroup>
+
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props" />
+
+  <PropertyGroup Label="Configuration"
+                 Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <TargetVersion>Windows10</TargetVersion>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
+    <ConfigurationType>Driver</ConfigurationType>
+    <DriverType>KMDF</DriverType>
+    <WdfVersionMajor>1</WdfVersionMajor>
+    <WdfVersionMinor>15</WdfVersionMinor>
+  </PropertyGroup>
+
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.props" />
+
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <WarningLevel>Level4</WarningLevel>
+    </ClCompile>
+    <Link>
+      <!-- VHF 라이브러리 (WDK에 포함) -->
+      <AdditionalDependencies>vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+    </Link>
+    <Inf>
+      <TimeStamp>10/16/2026 00:00:00</TimeStamp>
+    </Inf>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="vmouse.c" />
+    <Inf Include="vmouse.inf" />
+  </ItemGroup>
+
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.targets" />
+
+</Project>

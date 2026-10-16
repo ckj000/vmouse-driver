@@ -1,0 +1,52 @@
+name: Build VMouse Driver
+
+on:
+  push:
+    paths:
+      - 'core/vmouse_drv/**'
+      - '.github/workflows/build-driver.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022   # VS2022 Enterprise 사전 설치됨
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # VS2022 Enterprise가 이미 있으므로 WDK만 추가 설치
+    - name: Install WDK for Windows 11
+      shell: pwsh
+      run: |
+        Write-Host "WDK 다운로드 중..."
+        $url = "https://go.microsoft.com/fwlink/?linkid=2249371"
+        Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\wdksetup.exe" -UseBasicParsing
+        Write-Host "WDK 설치 중 (약 5분 소요)..."
+        $p = Start-Process -FilePath "$env:TEMP\wdksetup.exe" `
+             -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart" `
+             -Wait -PassThru
+        Write-Host "WDK 설치 완료 (코드: $($p.ExitCode))"
+        if ($p.ExitCode -notin @(0, 3010)) {
+          throw "WDK 설치 실패: $($p.ExitCode)"
+        }
+
+    - name: Build vmouse.sys
+      shell: pwsh
+      run: |
+        $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+        Write-Host "빌드 시작..."
+        & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
+          /p:Configuration=Release /p:Platform=x64 /v:minimal
+        if ($LASTEXITCODE -ne 0) { throw "빌드 실패" }
+        Write-Host "빌드 완료"
+        Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" | Select-Object Name, Length
+
+    - name: Upload vmouse.sys
+      uses: actions/upload-artifact@v4
+      with:
+        name: vmouse-driver
+        path: |
+          core/vmouse_drv/x64/Release/vmouse.sys
+          core/vmouse_drv/vmouse.inf
+        retention-days: 90
