@@ -15,43 +15,55 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install WDK and set WDKContentRoot
+    - name: Install WDK
       shell: pwsh
+      timeout-minutes: 25
       run: |
-        # WDK 이미 설치됐는지 확인
-        $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
-                   -ErrorAction SilentlyContinue | Select-Object -First 1
+        $installer = "$env:TEMP\wdksetup.exe"
 
-        if (-not $props) {
-          Write-Host "WDK 미설치 → Chocolatey로 설치 시도..."
-          choco install windows-driver-kit -y --timeout 3600
-          $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
-                     -ErrorAction SilentlyContinue | Select-Object -First 1
+        Write-Host "WDK 다운로드 중..."
+        curl.exe -L -f -o $installer `
+          "https://download.microsoft.com/download/eb29e759-d7ad-4541-b60c-e9774ad8c593/KIT_BUNDLE_WDK_MEDIACREATION/wdksetup.exe"
+        if ($LASTEXITCODE -ne 0) { throw "다운로드 실패 (curl exit $LASTEXITCODE)" }
+
+        # PE 헤더(MZ) 확인
+        $bytes = [System.IO.File]::ReadAllBytes($installer)
+        if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) {
+          $preview = [System.Text.Encoding]::UTF8.GetString($bytes, 0, [Math]::Min(300, $bytes.Length))
+          Write-Host "파일 미리보기:`n$preview"
+          throw "다운로드 파일이 PE 실행파일이 아님 (HTML 반환 의심)"
+        }
+        Write-Host "EXE 확인: $([math]::Round((Get-Item $installer).Length/1MB,1)) MB"
+
+        Write-Host "WDK 설치 중 (몇 분 소요)..."
+        $proc = Start-Process -FilePath $installer `
+          -ArgumentList "/features + /quiet /norestart" `
+          -Wait -PassThru
+        Write-Host "설치 종료 코드: $($proc.ExitCode)"
+        # 3010 = 재부팅 필요(정상), 0 = 성공
+        if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+          throw "WDK 설치 실패 (exit $($proc.ExitCode))"
         }
 
+        # WDKContentRoot 탐색
+        $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
+                   -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $props) {
-          Write-Host "Chocolatey 실패 → 레지스트리에서 경로 탐색..."
           $reg = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" `
                    -ErrorAction SilentlyContinue).KitsRoot10
           if ($reg) {
             $props = Get-Item "$reg\build\WindowsDriver.Default.props" -ErrorAction SilentlyContinue
           }
         }
+        if (-not $props) { throw "설치 완료 후에도 WindowsDriver.Default.props 없음" }
 
-        if (-not $props) {
-          throw "WDK를 찾을 수 없습니다. WindowsDriver.Default.props 없음."
-        }
-
-        # WDKContentRoot = "build" 폴더의 부모 (trailing backslash 필수)
         $wdkRoot = $props.Directory.Parent.FullName.TrimEnd('\') + '\'
         Write-Host "WDKContentRoot = $wdkRoot"
-
-        # 다음 스텝에서 사용할 수 있도록 GITHUB_ENV에 설정
         Add-Content -Path $env:GITHUB_ENV -Value "WDKContentRoot=$wdkRoot"
 
-        # 설치된 버전 확인
+        # 설치된 WDK 버전 출력
         Get-ChildItem "$wdkRoot\Include" -ErrorAction SilentlyContinue |
-          ForEach-Object { Write-Host "  WDK Include: $($_.Name)" }
+          ForEach-Object { Write-Host "  Include: $($_.Name)" }
 
     - name: Build vmouse.sys
       shell: pwsh
