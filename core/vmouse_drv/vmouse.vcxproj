@@ -99,7 +99,7 @@
            WdfLdr.lib: KMDF 함수 테이블 스텁 (wdf\kmdf\x64\KmdfVersion\)
            vhfkm.lib : VHF 가상 HID 프레임워크 (km\x64\) -->
       <AdditionalDependencies>
-        ntoskrnl.lib;hal.lib;vhfkm.lib;WdfLdr.lib;bufferoverflowk.lib;%(AdditionalDependencies)
+        ntoskrnl.lib;hal.lib;vhfkm.lib;wdfldr.lib;wdfdriverentry.lib;bufferoverflowk.lib;%(AdditionalDependencies)
       </AdditionalDependencies>
       <AdditionalLibraryDirectories>
         $(KitsRoot10)Lib\$(WdkVersion)\km\x64;
