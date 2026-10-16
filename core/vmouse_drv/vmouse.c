@@ -141,6 +141,11 @@ EvtDeviceAdd(
                     (USHORT)sizeof(g_HidDesc),
                     (PUCHAR)g_HidDesc);
 
+    /* WDK 28000 (Win11 24H2) VHF_CONFIG is larger than Windows 10 vhf.sys expects.
+       Windows 10 VHF_CONFIG = 15 fields = 120 bytes on x64.
+       Override Size so vhf.sys does not assertion-fail on size mismatch. */
+    vhfCfg.Size = 120;
+
     status = VhfCreate(&vhfCfg, &g_VhfHandle);
     if (!NT_SUCCESS(status)) return status;
 
