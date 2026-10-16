@@ -249,6 +249,69 @@ jobs:
         }
         Get-Item $sysPath | Select-Object Name, @{N='KB';E={[math]::Round($_.Length/1KB,1)}}
 
+        # === 테스트 인증서 서명 ===
+        Write-Host ""
+        Write-Host "=== 테스트 인증서로 드라이버 서명 ==="
+        $infDir = "core\vmouse_drv"
+
+        # 1. Self-signed code-signing cert 생성
+        $cert = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject "CN=VMouse Test Driver" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -HashAlgorithm SHA256
+        Write-Host "인증서 지문: $($cert.Thumbprint)"
+
+        # 2. .sys를 INF 폴더로 복사 (inf2cat이 INF와 같은 폴더에서 파일 탐색)
+        Copy-Item $sysPath "$infDir\vmouse.sys" -Force
+        Write-Host "vmouse.sys 복사 완료"
+
+        # 3. signtool 찾기
+        $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse `
+            -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "x64" } |
+            Select-Object -First 1 -ExpandProperty FullName
+        if (-not $signtool) {
+            $signtool = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022" -Recurse `
+                -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty FullName
+        }
+        Write-Host "signtool: $signtool"
+
+        # 4. vmouse.sys 서명 (inf2cat이 서명된 파일을 해시하도록 서명을 먼저)
+        & $signtool sign /v /s My /sha1 $cert.Thumbprint /fd sha256 "$infDir\vmouse.sys"
+        if ($LASTEXITCODE -ne 0) { throw "vmouse.sys 서명 실패" }
+        Write-Host "vmouse.sys 서명 완료"
+
+        # 5. inf2cat으로 카탈로그(.cat) 생성
+        $inf2cat = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse `
+            -Filter "Inf2Cat.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+        Write-Host "inf2cat: $inf2cat"
+        if (-not $inf2cat) { throw "inf2cat 없음 - WDK가 정상 설치됐는지 확인 필요" }
+
+        & $inf2cat /driver:"$infDir" /os:10_x64 2>&1 | Write-Host
+
+        # 6. vmouse.cat 서명
+        $catFile = "$infDir\vmouse.cat"
+        if (Test-Path $catFile) {
+            & $signtool sign /v /s My /sha1 $cert.Thumbprint /fd sha256 $catFile
+            if ($LASTEXITCODE -ne 0) { throw "vmouse.cat 서명 실패" }
+            Write-Host "vmouse.cat 서명 완료"
+        } else {
+            Write-Host "::error::vmouse.cat 생성 실패"
+            Get-ChildItem $infDir | ForEach-Object { Write-Host "  $($_.Name)" }
+            throw "inf2cat이 .cat 파일을 생성하지 않음"
+        }
+
+        # 7. 인증서 공개키 내보내기 (사용자가 PC에 설치할 .cer)
+        Export-Certificate -Cert $cert -FilePath "$infDir\VMouseTestCert.cer" | Out-Null
+        Write-Host "VMouseTestCert.cer 내보내기 완료"
+        Write-Host ""
+        Write-Host "=== 서명된 파일 목록 ==="
+        Get-ChildItem $infDir -File | Where-Object { $_.Extension -in ".sys",".cat",".cer",".inf" } |
+            ForEach-Object { Write-Host "  $($_.Name)  $([math]::Round($_.Length/1KB,1))KB" }
+
     - name: Upload build log (always)
       if: always()
       uses: actions/upload-artifact@v4
@@ -264,6 +327,8 @@ jobs:
       with:
         name: vmouse-driver
         path: |
-          core/vmouse_drv/x64/Release/vmouse.sys
+          core/vmouse_drv/vmouse.sys
           core/vmouse_drv/vmouse.inf
+          core/vmouse_drv/vmouse.cat
+          core/vmouse_drv/VMouseTestCert.cer
         retention-days: 90
