@@ -3,16 +3,12 @@
   vmouse.vcxproj  -  Visual Studio + WDK KMDF 드라이버 프로젝트
 
   준비:
-    1) Visual Studio 2019 또는 2022 (C++ 데스크톱 개발 포함)
+    1) Visual Studio 2019/2022 (C++ 데스크톱 개발 포함)
     2) WDK 10  (https://learn.microsoft.com/ko-kr/windows-hardware/drivers/download-the-wdk)
-       VS 버전에 맞는 WDK 버전 필수
 
   빌드:
-    Visual Studio에서 이 .vcxproj 파일 열기 → Release / x64 → 빌드
-    결과물: x64\Release\vmouse.sys, vmouse.inf
-
-  또는 개발자 명령 프롬프트:
     msbuild vmouse.vcxproj /p:Configuration=Release /p:Platform=x64
+    결과물: x64\Release\vmouse.sys, vmouse.inf
 -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
@@ -34,7 +30,24 @@
     <TargetPlatformVersion>10.0</TargetPlatformVersion>
   </PropertyGroup>
 
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props" />
+  <!--
+    WDKContentRoot 설명:
+      구버전 WDK (≤22621): WDKContentRoot = "C:\...\Windows Kits\10\"
+        → props 파일 위치: $(WDKContentRoot)build\WindowsDriver.Default.props
+      신버전 WDK (≥26100, 버전별 하위폴더):  WDKContentRoot = "C:\...\Windows Kits\10\build\VERSION\"
+        → props 파일 위치: $(WDKContentRoot)WindowsDriver.Default.props
+
+    아래 조건부 Import로 두 구조 모두 지원.
+  -->
+
+  <!-- 신버전 WDK: WDKContentRoot = .../build/VERSION/ -->
+  <Import Project="$(WDKContentRoot)WindowsDriver.Default.props"
+          Condition="Exists('$(WDKContentRoot)WindowsDriver.Default.props')" />
+
+  <!-- 구버전 WDK: WDKContentRoot = .../Windows Kits/10/ -->
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props"
+          Condition="!Exists('$(WDKContentRoot)WindowsDriver.Default.props') And
+                     Exists('$(WDKContentRoot)build\WindowsDriver.Default.props')" />
 
   <PropertyGroup Label="Configuration"
                  Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -47,7 +60,14 @@
     <WdfVersionMinor>15</WdfVersionMinor>
   </PropertyGroup>
 
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.props" />
+  <!-- 신버전 WDK -->
+  <Import Project="$(WDKContentRoot)WindowsDriver.props"
+          Condition="Exists('$(WDKContentRoot)WindowsDriver.props')" />
+
+  <!-- 구버전 WDK -->
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.props"
+          Condition="!Exists('$(WDKContentRoot)WindowsDriver.props') And
+                     Exists('$(WDKContentRoot)build\WindowsDriver.props')" />
 
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -70,6 +90,13 @@
     <Inf Include="vmouse.inf" />
   </ItemGroup>
 
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.targets" />
+  <!-- 신버전 WDK -->
+  <Import Project="$(WDKContentRoot)WindowsDriver.targets"
+          Condition="Exists('$(WDKContentRoot)WindowsDriver.targets')" />
+
+  <!-- 구버전 WDK -->
+  <Import Project="$(WDKContentRoot)build\WindowsDriver.targets"
+          Condition="!Exists('$(WDKContentRoot)WindowsDriver.targets') And
+                     Exists('$(WDKContentRoot)build\WindowsDriver.targets')" />
 
 </Project>
