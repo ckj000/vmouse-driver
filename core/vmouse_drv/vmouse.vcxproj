@@ -58,6 +58,9 @@
     <OutDir>$(MSBuildProjectDirectory)\x64\Release\</OutDir>
     <IntDir>$(MSBuildProjectDirectory)\x64\Release\obj\</IntDir>
     <TargetName>vmouse</TargetName>
+    <!-- 커널 드라이버: Win32 매니페스트 비활성화 (LNK1295 /MANIFEST:EMBED 방지) -->
+    <EmbedManifest>false</EmbedManifest>
+    <GenerateManifest>false</GenerateManifest>
   </PropertyGroup>
 
   <Import Project="$(VCTargetsPath)Microsoft.Cpp.props" />
