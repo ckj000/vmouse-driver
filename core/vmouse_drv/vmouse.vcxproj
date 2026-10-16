@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  vmouse.vcxproj  -  Visual Studio + WDK KMDF 드라이버 프로젝트
+  vmouse.vcxproj  -  v143 MSVC + 커널 모드 플래그 (WDK 설치 불필요)
 
   빌드:
     msbuild vmouse.vcxproj /p:Configuration=Release /p:Platform=x64
-    결과물: x64\Release\vmouse.sys, vmouse.inf
+    결과물: x64\Release\vmouse.sys
 
-  WDKContentRoot 값에 따라 두 가지 WDK 구조 모두 지원:
-    구버전 (≤22621): WDKContentRoot = KitsRoot10\  (props = $(WDKContentRoot)build\*.props)
-    신버전 (≥26100): WDKContentRoot = KitsRoot10\build\VERSION\  (props = $(WDKContentRoot)*.props)
+  WDKContentRoot 가 설정돼 있으면 그 경로에서 KitsRoot10 / WdkVersion / KmdfVersion
+  을 자동 추출합니다.
+  예) WDKContentRoot = C:\...\10\build\10.0.28000.0\
+      → KitsRoot10   = C:\...\10\
+      → WdkVersion   = 10.0.28000.0
+      → KmdfVersion  = 1.33 (폴더 자동 탐색)
 -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
@@ -21,81 +24,91 @@
 
   <PropertyGroup Label="Globals">
     <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
-    <TemplateGuid>{B12F7EF9-1B14-4EC1-8993-15DE4A30D89A}</TemplateGuid>
-    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <Configuration Condition="'$(Configuration)'==''">Release</Configuration>
     <Platform Condition="'$(Platform)'==''">x64</Platform>
     <ProjectName>vmouse</ProjectName>
-    <TargetOsVersion>10.0</TargetOsVersion>
-    <TargetPlatformVersion>10.0</TargetPlatformVersion>
+
+    <!--
+      WDKContentRoot (예: C:\...\10\build\10.0.28000.0\) 에서
+      KitsRoot10 과 WdkVersion 추출
+    -->
+    <_WdkTrimmed>$(WDKContentRoot.TrimEnd('\'))</_WdkTrimmed>
+    <WdkVersion Condition="'$(WdkVersion)' == '' And '$(WDKContentRoot)' != ''">$([System.IO.Path]::GetFileName('$(_WdkTrimmed)'))</WdkVersion>
+    <KitsRoot10 Condition="'$(KitsRoot10)' == '' And '$(WDKContentRoot)' != ''">$([System.IO.Directory]::GetParent($([System.IO.Directory]::GetParent('$(_WdkTrimmed)').FullName)).FullName)\</KitsRoot10>
+
+    <!-- KMDF 버전: 최신→구 순으로 탐색 -->
+    <KmdfVersion Condition="'$(KmdfVersion)' == '' And Exists('$(KitsRoot10)Include\wdf\kmdf\1.33')">1.33</KmdfVersion>
+    <KmdfVersion Condition="'$(KmdfVersion)' == '' And Exists('$(KitsRoot10)Include\wdf\kmdf\1.31')">1.31</KmdfVersion>
+    <KmdfVersion Condition="'$(KmdfVersion)' == '' And Exists('$(KitsRoot10)Include\wdf\kmdf\1.29')">1.29</KmdfVersion>
+    <KmdfVersion Condition="'$(KmdfVersion)' == '' And Exists('$(KitsRoot10)Include\wdf\kmdf\1.15')">1.15</KmdfVersion>
+    <KmdfVersion Condition="'$(KmdfVersion)' == ''">1.33</KmdfVersion>
   </PropertyGroup>
 
-  <!-- ── WindowsDriver.Default.props ─────────────────────────────────────── -->
-  <!-- 신버전: WDKContentRoot = .../build/VERSION/  → 직접 임포트 -->
-  <Import Project="$(WDKContentRoot)WindowsDriver.Default.props"
-          Condition="Exists('$(WDKContentRoot)WindowsDriver.Default.props')" />
-  <!-- 구버전: WDKContentRoot = KitsRoot/  → build\ 하위 임포트 -->
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.Default.props"
-          Condition="!Exists('$(WDKContentRoot)WindowsDriver.Default.props') And
-                     Exists('$(WDKContentRoot)build\WindowsDriver.Default.props')" />
+  <!-- 표준 MSVC 툴셋 props (Build 타깃 정의됨) -->
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.Default.props" />
 
-  <PropertyGroup Label="Configuration"
-                 Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetVersion>Windows10</TargetVersion>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <!-- v143 = VS2022 MSVC. WindowsKernelModeDriver 툴셋 불필요 -->
+    <PlatformToolset>v143</PlatformToolset>
+    <!-- DynamicLibrary로 빌드하되 확장자를 .sys로 지정 -->
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
-    <ConfigurationType>Driver</ConfigurationType>
-    <DriverType>KMDF</DriverType>
-    <WdfVersionMajor>1</WdfVersionMajor>
-    <WdfVersionMinor>15</WdfVersionMinor>
+    <CharacterSet>NotSet</CharacterSet>
+    <TargetExt>.sys</TargetExt>
+    <OutDir>$(MSBuildProjectDirectory)\x64\Release\</OutDir>
+    <IntDir>$(MSBuildProjectDirectory)\x64\Release\obj\</IntDir>
+    <TargetName>vmouse</TargetName>
   </PropertyGroup>
 
-  <!-- ── WindowsDriver.props ──────────────────────────────────────────────── -->
-  <!-- 신버전: 버전 폴더 직접 -->
-  <Import Project="$(WDKContentRoot)WindowsDriver.props"
-          Condition="Exists('$(WDKContentRoot)WindowsDriver.props')" />
-  <!-- 신버전 폴백: 버전 폴더의 상위(build\) -->
-  <Import Project="$(WDKContentRoot)..\WindowsDriver.props"
-          Condition="!Exists('$(WDKContentRoot)WindowsDriver.props') And
-                     Exists('$(WDKContentRoot)..\WindowsDriver.props')" />
-  <!-- 구버전 -->
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.props"
-          Condition="!Exists('$(WDKContentRoot)WindowsDriver.props') And
-                     !Exists('$(WDKContentRoot)..\WindowsDriver.props') And
-                     Exists('$(WDKContentRoot)build\WindowsDriver.props')" />
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.props" />
 
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- 커널 모드 전처리기 -->
+      <PreprocessorDefinitions>
+        _AMD64_;AMD64;_WIN64;NDEBUG;
+        KMDF_VERSION_MAJOR=1;KMDF_VERSION_MINOR=15;
+        %(PreprocessorDefinitions)
+      </PreprocessorDefinitions>
+      <!-- WDK 헤더 경로 -->
+      <AdditionalIncludeDirectories>
+        $(KitsRoot10)Include\$(WdkVersion)\km;
+        $(KitsRoot10)Include\$(WdkVersion)\shared;
+        $(KitsRoot10)Include\$(WdkVersion)\um;
+        $(KitsRoot10)Include\wdf\kmdf\$(KmdfVersion);
+        %(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <!-- 커널 모드 컴파일러 플래그 -->
+      <AdditionalOptions>/kernel /GS- /Gs32768 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <WarningLevel>Level4</WarningLevel>
+      <ExceptionHandling>false</ExceptionHandling>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>vhfkm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- 커널 드라이버 링커 설정 -->
+      <SubSystem>Native</SubSystem>
+      <Driver>Driver</Driver>
       <EntryPointSymbol>DriverEntry</EntryPointSymbol>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <!-- 커널 모드 라이브러리 -->
+      <AdditionalDependencies>
+        ntoskrnl.lib;hal.lib;wdfldr.lib;vhfkm.lib;%(AdditionalDependencies)
+      </AdditionalDependencies>
+      <AdditionalLibraryDirectories>
+        $(KitsRoot10)Lib\$(WdkVersion)\km\x64;
+        $(KitsRoot10)Lib\wdf\kmdf\x64\$(KmdfVersion);
+        %(AdditionalLibraryDirectories)
+      </AdditionalLibraryDirectories>
     </Link>
-    <Inf>
-      <TimeStamp>10/16/2026 00:00:00</TimeStamp>
-    </Inf>
   </ItemDefinitionGroup>
 
   <ItemGroup>
     <ClCompile Include="vmouse.c" />
-    <Inf Include="vmouse.inf" />
   </ItemGroup>
 
-  <!-- ── WindowsDriver.targets ────────────────────────────────────────────── -->
-  <!-- 신버전: 버전 폴더 직접 -->
-  <Import Project="$(WDKContentRoot)WindowsDriver.targets"
-          Condition="Exists('$(WDKContentRoot)WindowsDriver.targets')" />
-  <!-- 신버전 폴백: 버전 폴더의 상위(build\) -->
-  <Import Project="$(WDKContentRoot)..\WindowsDriver.targets"
-          Condition="!Exists('$(WDKContentRoot)WindowsDriver.targets') And
-                     Exists('$(WDKContentRoot)..\WindowsDriver.targets')" />
-  <!-- 구버전 -->
-  <Import Project="$(WDKContentRoot)build\WindowsDriver.targets"
-          Condition="!Exists('$(WDKContentRoot)WindowsDriver.targets') And
-                     !Exists('$(WDKContentRoot)..\WindowsDriver.targets') And
-                     Exists('$(WDKContentRoot)build\WindowsDriver.targets')" />
+  <!-- 표준 MSVC targets: Build 타깃 정의됨 -->
+  <Import Project="$(VCTargetsPath)Microsoft.Cpp.targets" />
 
 </Project>

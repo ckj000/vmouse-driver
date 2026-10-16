@@ -100,9 +100,24 @@ jobs:
         Add-Content -Path $env:GITHUB_ENV -Value "WDKContentRoot=$wdkRoot"
         Write-Host "WDKContentRoot 설정 완료: $wdkRoot"
 
+        # KitsRoot10 추출 (wdkRoot 상위 2단계)
+        $kitsBase = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots").KitsRoot10
+        if (-not $kitsBase) {
+          $kitsBase = [System.IO.Directory]::GetParent([System.IO.Directory]::GetParent($wdkRoot.TrimEnd('\')).FullName).FullName + "\"
+        }
+        Write-Host "KitsRoot10 = $kitsBase"
+        Add-Content -Path $env:GITHUB_ENV -Value "KitsRoot10=$kitsBase"
+
+        # KMDF 버전 탐지
+        $kmdfDir = Get-ChildItem "$kitsBase`Include\wdf\kmdf" -Directory -ErrorAction SilentlyContinue |
+                     Sort-Object Name -Descending | Select-Object -First 1
+        if ($kmdfDir) {
+          Write-Host "KmdfVersion = $($kmdfDir.Name)"
+          Add-Content -Path $env:GITHUB_ENV -Value "KmdfVersion=$($kmdfDir.Name)"
+        }
+
         # WDK 파일 구조 진단 출력
         Write-Host "=== WDK 파일 구조 ==="
-        $kitsBase = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots").KitsRoot10
         Write-Host "[build\]"
         Get-ChildItem "$kitsBase`build" -ErrorAction SilentlyContinue |
           ForEach-Object { Write-Host "  $($_.Name) [$(if($_.PSIsContainer){'DIR'}else{[math]::Round($_.Length/1KB,1)+'KB'})]" }
@@ -112,6 +127,12 @@ jobs:
           Get-ChildItem $vd.FullName -ErrorAction SilentlyContinue |
             ForEach-Object { Write-Host "  $($_.Name) [$(if($_.PSIsContainer){'DIR'}else{[math]::Round($_.Length/1KB,1)+'KB'})]" }
         }
+        Write-Host "[Include\wdf\kmdf\]"
+        Get-ChildItem "$kitsBase`Include\wdf\kmdf" -ErrorAction SilentlyContinue |
+          ForEach-Object { Write-Host "  $($_.Name)" }
+        Write-Host "[Lib\wdf\kmdf\x64\]"
+        Get-ChildItem "$kitsBase`Lib\wdf\kmdf\x64" -ErrorAction SilentlyContinue |
+          ForEach-Object { Write-Host "  $($_.Name)" }
 
     - name: Build vmouse.sys
       shell: pwsh
