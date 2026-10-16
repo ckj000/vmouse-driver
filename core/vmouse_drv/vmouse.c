@@ -135,22 +135,12 @@ EvtDeviceAdd(
     status = WdfIoQueueCreate(device, &qCfg, WDF_NO_OBJECT_ATTRIBUTES, &queue);
     if (!NT_SUCCESS(status)) return status;
 
-    /* VHF 가상 마우스 장치 생성 */
-    VHF_CONFIG_INIT(&vhfCfg,
-                    WdfDeviceWdmGetDeviceObject(device),
-                    (USHORT)sizeof(g_HidDesc),
-                    (PUCHAR)g_HidDesc);
-
-    /* WDK 28000 (Win11 24H2) VHF_CONFIG is larger than Windows 10 vhf.sys expects.
-       Windows 10 VHF_CONFIG = 15 fields = 120 bytes on x64.
-       Override Size so vhf.sys does not assertion-fail on size mismatch. */
-    vhfCfg.Size = 120;
-
-    status = VhfCreate(&vhfCfg, &g_VhfHandle);
-    if (!NT_SUCCESS(status)) return status;
-
-    /* Raw Input 구독 앱이 이 장치를 인식하도록 시작 */
-    return VhfStart(g_VhfHandle);
+    /* DIAGNOSTIC: VHF disabled to isolate BSOD source.
+       If driver loads without BSOD => VHF is the crash cause.
+       If BSOD persists => KMDF/INF class is the cause. */
+    UNREFERENCED_PARAMETER(vhfCfg);
+    g_VhfHandle = NULL;
+    return STATUS_SUCCESS;
 }
 
 /* ─── EvtIoControl ───────────────────────────────────────── */
