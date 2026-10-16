@@ -9,63 +9,54 @@ on:
 
 jobs:
   build:
-    runs-on: windows-2022   # VS2022 Enterprise 사전 설치됨
+    runs-on: windows-2022
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install WDK for Windows 11
+    - name: Install WDK and set WDKContentRoot
       shell: pwsh
       run: |
-        # 이미 설치됐는지 확인
-        $ntddk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" `
-                   -Filter "ntddk.h" -Recurse -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FullName -match "\\km\\" } |
-                   Select-Object -First 1
-        if ($ntddk) {
-          Write-Host "WDK 이미 설치됨: $($ntddk.FullName)"
-        } else {
-          Write-Host "=== Chocolatey로 WDK 설치 시도 ==="
-          choco install windows-driver-kit -y --timeout 3600 2>&1
-          $wdkOk = $?
+        # WDK 이미 설치됐는지 확인
+        $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
+                   -ErrorAction SilentlyContinue | Select-Object -First 1
 
-          if (-not $wdkOk) {
-            Write-Host "=== Chocolatey 실패, 직접 다운로드 시도 ==="
-            $wdkExe = "$env:TEMP\wdksetup.exe"
-            curl.exe -L --retry 3 --max-time 600 -o $wdkExe `
-              "https://go.microsoft.com/fwlink/?linkid=2249371"
-
-            # MZ 헤더 (PE 파일 여부) 확인
-            $bytes = [IO.File]::ReadAllBytes($wdkExe)[0..3]
-            $isMZ  = ($bytes[0] -eq 0x4D) -and ($bytes[1] -eq 0x5A)
-            Write-Host "파일 크기: $((Get-Item $wdkExe).Length) bytes, MZ 헤더: $isMZ"
-            if (-not $isMZ) {
-              # HTML 반환된 경우 내용 출력
-              Get-Content $wdkExe -Encoding UTF8 -TotalCount 10
-              throw "다운로드된 파일이 EXE가 아님 (HTML 리다이렉트?)"
-            }
-
-            $p = Start-Process -FilePath $wdkExe `
-                 -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart" `
-                 -Wait -PassThru
-            Write-Host "설치 코드: $($p.ExitCode)"
-            if ($p.ExitCode -notin @(0, 3010)) {
-              throw "WDK 설치 실패: $($p.ExitCode)"
-            }
-          }
-          Write-Host "WDK 설치 완료"
+        if (-not $props) {
+          Write-Host "WDK 미설치 → Chocolatey로 설치 시도..."
+          choco install windows-driver-kit -y --timeout 3600
+          $props = Get-ChildItem "C:\Program Files*\Windows Kits\*\build\WindowsDriver.Default.props" `
+                     -ErrorAction SilentlyContinue | Select-Object -First 1
         }
 
-        # 설치 결과 확인
-        $kits = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" `
-                  -ErrorAction SilentlyContinue | Select-Object Name
-        Write-Host "설치된 WDK 버전:"
-        $kits | ForEach-Object { Write-Host "  $($_.Name)" }
+        if (-not $props) {
+          Write-Host "Chocolatey 실패 → 레지스트리에서 경로 탐색..."
+          $reg = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots" `
+                   -ErrorAction SilentlyContinue).KitsRoot10
+          if ($reg) {
+            $props = Get-Item "$reg\build\WindowsDriver.Default.props" -ErrorAction SilentlyContinue
+          }
+        }
+
+        if (-not $props) {
+          throw "WDK를 찾을 수 없습니다. WindowsDriver.Default.props 없음."
+        }
+
+        # WDKContentRoot = "build" 폴더의 부모 (trailing backslash 필수)
+        $wdkRoot = $props.Directory.Parent.FullName.TrimEnd('\') + '\'
+        Write-Host "WDKContentRoot = $wdkRoot"
+
+        # 다음 스텝에서 사용할 수 있도록 GITHUB_ENV에 설정
+        Add-Content -Path $env:GITHUB_ENV -Value "WDKContentRoot=$wdkRoot"
+
+        # 설치된 버전 확인
+        Get-ChildItem "$wdkRoot\Include" -ErrorAction SilentlyContinue |
+          ForEach-Object { Write-Host "  WDK Include: $($_.Name)" }
 
     - name: Build vmouse.sys
       shell: pwsh
       run: |
+        Write-Host "WDKContentRoot = $env:WDKContentRoot"
         $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
         & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
           /p:Configuration=Release /p:Platform=x64 /v:normal
