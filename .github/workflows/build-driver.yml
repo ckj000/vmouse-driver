@@ -200,12 +200,16 @@ jobs:
           2>&1 | Tee-Object -FilePath "build_output.txt"
         $exitCode = $LASTEXITCODE
 
-        # 오류/경고 라인만 스텝 요약에 추가 (GitHub Actions 요약 페이지에서 확인 가능)
-        $errors = Get-Content "build_output.txt" | Where-Object { $_ -match " error " }
+        # MSBuild 에러 라인 (::error:: 어노테이션 → GitHub API 에서 인증 없이 확인)
+        $errors = Get-Content "build_output.txt" |
+          Where-Object { $_ -match "error (C|LNK|MSB)\d|cannot open|unresolved" } |
+          Select-Object -First 20
         if ($errors) {
-          Add-Content $env:GITHUB_STEP_SUMMARY "## 빌드 오류`n``````"
-          $errors | Add-Content $env:GITHUB_STEP_SUMMARY
-          Add-Content $env:GITHUB_STEP_SUMMARY "``````"
+          $errors | ForEach-Object { Write-Host "::error::$_" }
+        } else {
+          Write-Host "::error::--- 에러 패턴 미매칭, 마지막 20줄 ---"
+          Get-Content "build_output.txt" -Tail 20 |
+            ForEach-Object { Write-Host "::warning::$_" }
         }
 
         if ($exitCode -ne 0) { throw "빌드 실패 (exit $exitCode)" }
