@@ -15,32 +15,63 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    # VS2022 Enterprise가 이미 있으므로 WDK만 추가 설치
     - name: Install WDK for Windows 11
       shell: pwsh
       run: |
+        $wdkExe = "$env:TEMP\wdksetup.exe"
+        $logFile = "$env:TEMP\wdk_install.log"
+
+        # curl.exe 로 다운로드 (리다이렉트 처리 더 안정적)
         Write-Host "WDK 다운로드 중..."
-        $url = "https://go.microsoft.com/fwlink/?linkid=2249371"
-        Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\wdksetup.exe" -UseBasicParsing
-        Write-Host "WDK 설치 중 (약 5분 소요)..."
-        $p = Start-Process -FilePath "$env:TEMP\wdksetup.exe" `
-             -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart" `
-             -Wait -PassThru
-        Write-Host "WDK 설치 완료 (코드: $($p.ExitCode))"
-        if ($p.ExitCode -notin @(0, 3010)) {
-          throw "WDK 설치 실패: $($p.ExitCode)"
+        curl.exe -L --retry 3 --max-time 600 `
+          -o $wdkExe `
+          "https://go.microsoft.com/fwlink/?linkid=2249371"
+
+        $size = (Get-Item $wdkExe -ErrorAction SilentlyContinue).Length
+        Write-Host "다운로드 크기: $([math]::Round($size/1MB,1)) MB"
+
+        # HTML 페이지가 반환된 경우 확인
+        if ($size -lt 500KB) {
+          Write-Host "=== 다운로드된 내용 (처음 500자) ==="
+          Get-Content $wdkExe -Encoding UTF8 -Raw -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.Substring(0, [Math]::Min(500, $_.Length)) }
+          throw "WDK 다운로드 실패: 파일이 너무 작음 ($size bytes)"
         }
+
+        Write-Host "WDK 설치 중 (수 분 소요)..."
+        $p = Start-Process -FilePath $wdkExe `
+             -ArgumentList "/features OptionId.WindowsDriverKit /quiet /norestart /log $logFile" `
+             -Wait -PassThru
+        Write-Host "설치 종료 코드: $($p.ExitCode)"
+
+        if (Test-Path $logFile) {
+          Write-Host "=== 설치 로그 (마지막 30줄) ==="
+          Get-Content $logFile -Tail 30
+        }
+
+        if ($p.ExitCode -notin @(0, 3010)) {
+          throw "WDK 설치 실패: exit=$($p.ExitCode)"
+        }
+        Write-Host "WDK 설치 완료"
 
     - name: Build vmouse.sys
       shell: pwsh
       run: |
+        # WDK 설치 경로 확인
+        $wdkRoot = "C:\Program Files (x86)\Windows Kits\10"
+        Write-Host "WDK 루트: $(Test-Path $wdkRoot)"
+        Get-ChildItem "$wdkRoot\Include" -ErrorAction SilentlyContinue |
+          Select-Object -First 5 | ForEach-Object { Write-Host "  $_" }
+
         $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
-        Write-Host "빌드 시작..."
+        Write-Host "MSBuild: $msbuild"
+
         & $msbuild "core\vmouse_drv\vmouse.vcxproj" `
-          /p:Configuration=Release /p:Platform=x64 /v:minimal
+          /p:Configuration=Release /p:Platform=x64 /v:normal
         if ($LASTEXITCODE -ne 0) { throw "빌드 실패" }
-        Write-Host "빌드 완료"
-        Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" | Select-Object Name, Length
+
+        Get-Item "core\vmouse_drv\x64\Release\vmouse.sys" |
+          Select-Object Name, @{N='Size(KB)';E={[math]::Round($_.Length/1KB,1)}}
 
     - name: Upload vmouse.sys
       uses: actions/upload-artifact@v4
