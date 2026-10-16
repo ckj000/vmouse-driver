@@ -90,6 +90,8 @@
       <!-- v143 toolset: /DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry 명시적 지정 -->
       <AdditionalOptions>/DRIVER /SUBSYSTEM:NATIVE /ENTRY:DriverEntry /NODEFAULTLIB %(AdditionalOptions)</AdditionalOptions>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <!-- 커널 드라이버는 Win32 매니페스트 불필요 (/MANIFEST 플래그 제거) -->
+      <GenerateManifest>false</GenerateManifest>
       <!-- 커널 모드 라이브러리
            WdfLdr.lib: KMDF 함수 테이블 스텁 (wdf\kmdf\x64\KmdfVersion\)
            vhfkm.lib : VHF 가상 HID 프레임워크 (km\x64\) -->
